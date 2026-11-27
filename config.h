@@ -29,15 +29,15 @@
 //   Segment | Left   | Right
 //   --------+--------+-------
 //      A    | GPIO26 | GPIO19
-//      B    | GPIO4  | GPIO1   <- UART0 TX pin
+//      B    | GPIO4  | GPIO13
 //      C    | GPIO17 | GPIO22
-//      D    | GPIO33 | GPIO3   <- UART0 RX pin
+//      D    | GPIO33 | GPIO27
 //      E    | GPIO16 | GPIO23
 //      F    | GPIO25 | GPIO32
 //      G    | GPIO18 | GPIO21
 static const uint8_t DIGIT_PINS[2][7] = {
     /* Left  */ {26, 4, 17, 33, 16, 25, 18},
-    /* Right */ {19, 1, 22, 3, 23, 32, 21}};
+    /* Right */ {19, 13, 22, 27, 23, 32, 21}};
 
 // ---- 4. Request / animation defaults (all editable from the web UI) ----------
 #define DEFAULT_TIMEOUT_S 10      // temporary display requests expire after this
