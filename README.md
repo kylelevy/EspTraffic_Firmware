@@ -7,8 +7,7 @@ run display patterns, show an event countdown, and update the firmware over the 
 > **Status of testing.** The source has been syntax-checked against API stubs and its logic
 > (GPIO mask maths, number glyphs, pattern timing, request interruption/timeout, JSON parser,
 > countdown rounding) was unit-tested on a PC. It has **not** been compiled with the real
-> PlatformIO toolchain or run on real hardware by the author. Work through
-> [`docs/TESTING.md`](docs/TESTING.md) on your board before relying on it.
+> PlatformIO toolchain or run on real hardware by the author. Test it on your board before relying on it.
 
 ## 1. Required hardware
 
@@ -20,7 +19,7 @@ run display patterns, show an event countdown, and update the firmware over the 
 
 ## 2. GPIO mapping
 
-Defined once in `include/config.h` (`DIGIT_PINS[digit][segment]`); nothing else in the code names a pin.
+Defined once in `config.h` (`DIGIT_PINS[digit][segment]`); nothing else in the code names a pin.
 
 | Segment | Left digit (tens) | Right digit (units) |
 |---|---|---|
@@ -32,9 +31,7 @@ Defined once in `include/config.h` (`DIGIT_PINS[digit][segment]`); nothing else 
 | F | GPIO25 | GPIO32 |
 | G | GPIO18 | GPIO21 |
 
-## 3. Hardware Layout
-
-## Hardware
+## 3. Hardware layout
 
 ```mermaid
 flowchart TB
@@ -93,31 +90,42 @@ GPIO HIGH turns the channel and its segment on. GPIO LOW turns it off.
   WiFi, WebServer, ESPmDNS, Preferences and Update ship with the ESP32 Arduino core.
 - Pinned platform: `espressif32@6.5.0` (Arduino core 2.0.14). PlatformIO downloads it automatically.
 
-**Arduino IDE:** the code is plain Arduino C++11. Create a sketch folder, rename `src/main.cpp` to
-`<folder>.ino`, copy all `include/*.h` files and `partitions.csv` into the same folder, choose
-*ESP32 Dev Module* and Tools → Partition Scheme → *Custom* (uses `partitions.csv`). PlatformIO is recommended.
+**Arduino IDE:** the code is plain Arduino C++11. Put `EspTraffic_Firmware.ino`, all the `.h` files and
+`partitions.csv` in a folder named `EspTraffic_Firmware`, install ESP32 core 2.0.14, choose *ESP32 Dev Module*
+and Tools → Partition Scheme → *Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)*. The `partitions.csv` in the
+sketch folder replaces that scheme's table. PlatformIO is recommended.
 
 ## 5. Open, configure, build and flash
 
-1. Open the `ESP32-Traffic-Controller` folder in VS Code with PlatformIO (*File → Open Folder*).
-2. Edit the top of `include/config.h`:
+1. Open the project folder (the one containing `platformio.ini`) in VS Code with PlatformIO
+   (*File → Open Folder*), or `cd` into it in a terminal.
+2. Edit the top of `config.h`:
    ```cpp
    #define WIFI_SSID "YOUR_WIFI_NAME"
    #define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
    ```
-   These are used on first boot only. Credentials saved later through the web page take priority.
-3. **Compile:** PlatformIO toolbar → *Build*, or `pio run`.
-4. **First upload over USB:** connect the board, then *Upload* or `pio run -t upload`.
-   (If the upload does not start, hold the **BOOT** button while it says "Connecting...".)
-5. The compiled image for later OTA updates is `.pio/build/esp32dev/firmware.bin`.
+   These apply while no credentials are saved in NVS. Credentials saved through the web page take priority,
+   including after later uploads.
+3. **Compile:** PlatformIO toolbar → *Build*, or `pio run -e esp32dev`.
+4. **Upload over USB (wired):** connect the board, then run
+   ```bash
+   pio run -e esp32dev -t upload --upload-port /dev/ttyUSB0
+   ```
+   This builds if needed and flashes at 921600 baud. `/dev/ttyUSB0` is a Linux port name; if your board
+   appears under another one (`pio device list`), use that. If the upload does not start, hold the **BOOT**
+   button while it says "Connecting...".
+
+The first installation must be done over USB. Later updates can use USB or [OTA](#10-ota-firmware-update).
+The firmware prints nothing on the serial port, so use the web page or `/api/info` for diagnostics.
 
 ### Startup sequence
 
 1. All 14 outputs LOW immediately, then **every segment ON for 500 ms**, then OFF.
-2. Wi-Fi connects without blocking; the **figure-eight loading animation** runs until connected
-   (retries every 3 s after a 15 s attempt).
-3. On connection: **one flash**, then mDNS, web server and NTP start.
-4. If Wi-Fi drops the animation returns, the device reconnects by itself, flashes once and carries on.
+2. A 3 s pause with the display off.
+3. Wi-Fi connects without blocking; the **figure-eight loading animation** runs until connected
+   (after a 15 s attempt it waits 3 s and tries again).
+4. On connection: **one 500 ms flash**, while mDNS, NTP and the web server start.
+5. If Wi-Fi drops the animation returns, the device reconnects by itself, flashes once and carries on.
 
 ## 6. Using the web interface
 
@@ -125,6 +133,7 @@ Open **http://espTraffic.local** (or the IP address shown in your router/`/api/i
 
 - Click any segment in the picture to toggle it. The picture shows the **real GPIO state** read back from the pins.
 - *All OFF / All ON*, a number box (0-99), the four patterns and *Stop*.
+- *Pattern configuration* sets the speed, timeout, blink count and blink targets for the pattern you start.
 - Every temporary command expires after the configured **request timeout** (default 10 s), then the display
   returns to the countdown (if enabled) or turns off. A newer command always replaces the running one immediately.
 - The page polls `/api/state` every 3 s; polling never changes the display or resets a timeout.
@@ -143,9 +152,10 @@ Android browsers often cannot resolve `.local`; use the IP address.
 | `flash` | all 14 segments ON/OFF together |
 | `count` | 00, 11, 22 ... 99, 00 ... (both digits equal) |
 | `figure8` | a 3-segment trail snakes around both digits, crossing over the two middle (G) segments. It uses the outer segments and both G bars; the four inner verticals (Left B/C, Right E/F) are not part of the path |
-| `blink` | blinks chosen segments (`left.A`, `right.G`, `left`, `right`, `all`); `count` = complete ON/OFF cycles; none chosen = all. Ends by itself after the last cycle |
+| `blink` | blinks chosen segments (`left.A`, `right.G`, `left`, `right`, `all`); `count` = complete ON/OFF cycles; none chosen = all; default 3 cycles, maximum 100. Ends by itself after the last cycle |
 
-Speeds (30-5000 ms per step) are set in *Settings* or per request (`speed`). Blink with no explicit timeout
+Speeds (30-5000 ms per step) are set in *Settings* or per request (`speed`); *Pattern speed* is the one `blink`
+uses. Blink with no explicit timeout
 extends its own timeout so the requested number of blinks completes.
 
 ## 8. Changing Wi-Fi credentials
@@ -174,28 +184,62 @@ when you change the SSID. The saved password is never returned by any API.
 
 ## 10. OTA firmware update
 
-1. Build the new firmware (`pio run`) and locate `.pio/build/esp32dev/firmware.bin`.
-2. *Firmware update* card → choose the `.bin` → **Upload firmware**. A progress bar shows the transfer; all
-   segments stay ON while uploading. On success the device restarts after ~1.5 s and the page reloads itself.
-3. Failures show a message (bad image, not enough memory, aborted upload) and the old firmware keeps running.
-4. Settings, saved Wi-Fi credentials and the countdown are in NVS and **survive** the update.
+OTA (over-the-air) updates send a compiled image over Wi-Fi to the firmware's `/update` page. The controller
+must already be running this firmware and be connected to your network.
 
-Two 1.875 MB application slots (`partitions.csv`) give safe A/B updates. Use the `firmware.bin` app image, **not**
-`bootloader.bin` or `partitions.bin`.
-Command line: `curl -F "firmware=@.pio/build/esp32dev/firmware.bin" http://espTraffic.local/update`
+**Build the image** (this does not need the board connected):
+
+```bash
+pio run -e esp32dev
+```
+
+The image is `.pio/build/esp32dev/firmware.bin`. Then upload it in either of these ways.
+
+**From the browser**
+
+1. Open **http://espTraffic.local** (or `http://<device-ip>`).
+2. *Firmware update* card → choose `firmware.bin` → **Upload firmware**.
+3. A progress bar shows the transfer; all segments stay ON while uploading. On success the device restarts
+   after ~1.5 s and the page reloads itself.
+
+**From the command line** (run in the project folder)
+
+```bash
+curl -F "firmware=@.pio/build/esp32dev/firmware.bin" http://espTraffic.local/update
+```
+
+With authentication enabled, add `-u <username>` (curl prompts for the password). Success returns
+`{"ok":true,"message":"Update successful. Restarting..."}`.
+
+`pio run -t upload` cannot be pointed at the device's network address: this project uses the HTTP upload
+above, not ArduinoOTA/`espota`.
+
+**Notes**
+
+- A rejected or interrupted upload (invalid image, not enough memory, lost connection) leaves the old firmware
+  in place.
+- Upload only `firmware.bin` (the app image), **never** `bootloader.bin` or `partitions.bin`.
+- There are two 1.875 MB application slots (`partitions.csv`), so the running image is not overwritten.
+  The application does no health check or rollback of its own: if a new image uploads successfully but crashes
+  or cannot be reached, recover with a USB upload.
+- OTA replaces the application only. Changes to `partitions.csv` need a USB upload.
+- Settings, saved Wi-Fi credentials and the countdown are in NVS and **survive** the update.
 
 ## 11. Power-saving mode
 
 Not deep sleep. Wi-Fi, mDNS and the web server stay up. When enabled: Wi-Fi modem sleep (`WIFI_PS_MIN_MODEM`,
-wakes every DTIM so mDNS keeps working), CPU drops from 240 to 80 MHz after 10 s of idle, loop delay rises to 5 ms.
-Any request wakes it immediately. It is suspended during OTA. Expect a few extra ms of latency on the first request.
+wakes every DTIM so mDNS keeps working), the loop delay rises from 1 to 5 ms when no display request or overlay is
+active, and the CPU drops from 240 to 80 MHz after 10 s of idle. Page, API and display requests wake it immediately;
+an open web page polls every 3 s, so the CPU stays at 240 MHz. It is off by default and suspended during OTA.
+Expect a few extra ms of latency on the first request.
 
 ## 12. Security
 
 - HTTP only, designed for a **trusted private network**. With the default `AUTH_ENABLED 0` anyone on the network
   can control the display, change settings and flash firmware.
 - Set `AUTH_ENABLED 1` plus `AUTH_USERNAME` / `AUTH_PASSWORD` in `config.h` for HTTP Basic authentication on
-  **every** route (page, display commands, settings, OTA). Basic auth is not encrypted: it only deters casual use.
+  the page, API, display commands, settings and OTA upload (`/favicon.ico` and the "use POST" reply to
+  `GET /update` stay open). Basic auth is not encrypted: it only deters casual use.
 - **Do not port-forward or otherwise expose the controller to the internet.**
 - The Wi-Fi password is stored unencrypted in NVS (a requirement of connecting) and is never sent over the API.
 
@@ -203,34 +247,31 @@ Any request wakes it immediately. It is suspended during OTA. Expect a few extra
 
 | Symptom | Check |
 |---|---|
-| Figure-eight never stops | wrong SSID/password in `config.h`, 5 GHz-only network, weak signal. Reflash with correct values |
+| Figure-eight never stops | wrong SSID/password, 5 GHz-only network, weak signal. Fix `config.h` and upload over USB; if credentials were saved from the web page, erase the flash first (see factory reset) |
 | `espTraffic.local` not found | use the IP (router's client list); see mDNS notes above |
 | Page loads but shows *offline* | device lost Wi-Fi; wait for reconnect animation to finish |
 | Countdown blank | enabled? valid date saved? "clock synced"? (NTP needs internet access) |
 | Wrong number of days | check timezone string in Settings |
-| A segment never lights | wiring/Darlington channel; test with `POST /api/segments` for that segment alone |
-| Right D / Right B flicker on USB | see *Hardware caveats* |
-| OTA fails | upload `firmware.bin` (app image), keep >30 KB free heap, stay on the same network |
-| Lost the device after a typo in Wi-Fi settings | cannot happen: new credentials are tested and reverted on failure |
-| Needs a factory reset of settings | flash once with *Erase Flash* (`pio run -t erase`) |
+| A segment never lights | wiring/Darlington channel; light it alone with `curl -H "Content-Type: application/json" -d '{"mask":1}' http://espTraffic.local/api/segments` (1 = left A; double for each next segment, left A-G then right A-G) |
+| OTA fails | upload `firmware.bin` (app image), keep at least 30,000 bytes of heap free, stay on the same network |
+| Lost the device after a typo in Wi-Fi settings | a change made in the web page is tested first and reverted if the connection fails |
+| Needs a factory reset of settings | erases the firmware too: run `pio run -e esp32dev -t erase --upload-port /dev/ttyUSB0`, then upload over USB again |
 
 ## 14. Project layout
 
 ```
-platformio.ini      board, pinned platform, partition table
-partitions.csv      nvs + otadata + 2 x 1.875 MB app slots
-include/config.h    GPIO map, Wi-Fi defaults, hostname, timeouts, TZ, power, auth
-include/display.h   batched GPIO register output, glyphs, segment parsing
-include/storage.h   validated NVS settings
-include/countdown.h NTP/timezone + days-remaining
-include/power.h     modem sleep, CPU scaling
-include/patterns.h  request manager, timeouts, 4 patterns, loading overlay
-include/networking.h non-blocking Wi-Fi state machine, mDNS, credential trial
-include/webserver.h HTTP server, JSON API, OTA
-include/web_ui.h    embedded HTML/CSS/JS (PROGMEM)
-src/main.cpp        setup() and the non-blocking loop()
-docs/API.md         REST API reference
-docs/TESTING.md     hardware test checklist
+EspTraffic_Firmware.ino  setup() and the non-blocking loop()
+platformio.ini           board, pinned platform, partition table
+partitions.csv           nvs + otadata + 2 x 1.875 MB app slots + spiffs
+config.h                 GPIO map, Wi-Fi defaults, hostname, timeouts, TZ, power, auth
+display.h                batched GPIO register output, glyphs, segment parsing
+storage.h                validated NVS settings
+countdown.h              NTP/timezone + days-remaining
+power.h                  modem sleep, CPU scaling
+patterns.h               request manager, timeouts, 4 patterns, loading overlay
+networking.h             non-blocking Wi-Fi state machine, mDNS, credential trial
+webserver.h              HTTP server, JSON API, OTA
+web_ui.h                 embedded HTML/CSS/JS (PROGMEM)
 ```
 
 ## 15. How the GPIO update works
