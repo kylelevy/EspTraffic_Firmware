@@ -9,6 +9,8 @@ run display patterns, show an event countdown, and update the firmware over the 
 > countdown rounding) was unit-tested on a PC. It has **not** been compiled with the real
 > PlatformIO toolchain or run on real hardware by the author. Test it on your board before relying on it.
 
+<img width="3207" height="2033" alt="Screenshot 2026-11-27 at 00-29-17 ESP32 Display Controller" src="https://github.com/user-attachments/assets/522514b0-7bfd-4242-8a17-34a7d1dffa52" />
+
 ## 1. Required hardware
 
 - ESP32 DevKit with an **ESP32-WROOM-32** module (4 MB flash). **WROVER boards are not supported
