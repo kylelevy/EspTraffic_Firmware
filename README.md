@@ -25,31 +25,67 @@ Defined once in `include/config.h` (`DIGIT_PINS[digit][segment]`); nothing else 
 | Segment | Left digit (tens) | Right digit (units) |
 |---|---|---|
 | A | GPIO26 | GPIO19 |
-| B | GPIO4  | GPIO1 (UART0 TX) |
+| B | GPIO4  | GPIO13 |
 | C | GPIO17 | GPIO22 |
-| D | GPIO33 | GPIO3 (UART0 RX) |
+| D | GPIO33 | GPIO27 |
 | E | GPIO16 | GPIO23 |
 | F | GPIO25 | GPIO32 |
 | G | GPIO18 | GPIO21 |
 
-## 3. Hardware caveats
+## 3. Hardware Layout
 
-1. **GPIO1 and GPIO3 are the USB-to-UART programming pins.** The firmware never uses `Serial`
-   (all debugging goes through the browser), but the physical USB-UART bridge stays connected to those pins.
-   - While the **USB cable is plugged in and a serial monitor/terminal is open**, the bridge can drive GPIO3
-     and fight the output driving *Right D*. Keep serial monitors closed during normal operation.
-   - During flashing and at reset, the boot ROM prints on GPIO1/UART0, so *Right B* may flicker briefly at
-     power-up/reset **before** the firmware starts. This is expected and accepted. As soon as `setup()` runs,
-     the firmware latches all 14 outputs LOW, reconnects GPIO1/3 to the GPIO matrix, and re-asserts the
-     outputs every 100 ms (`DISPLAY_REFRESH_MS`).
-   - The re-assert cannot cure an *electrical* conflict (two drivers on one wire). If you see ghosting on Right D
-     while USB is attached, check for a series resistor between the bridge and GPIO3 or run the board from
-     a separate 5 V supply without the serial port open.
-   - Flashing over USB can briefly light segments (the bridge toggles DTR/RTS and the UART lines). Harmless.
-2. **GPIO16/17** are free on WROOM but reserved on WROVER. If your module is a WROVER, do not use this map as is.
-3. GPIO1/3 being outputs does not stop you flashing over USB. OTA via the browser works regardless.
-4. Each segment output only needs to source the Darlington input current; check your array's input resistor.
-5. The ESP32 needs reliable 5 V. 14 lit LEDs through Darlingtons are fed from the LED supply, not the ESP32.
+## Hardware
+
+```mermaid
+flowchart TB
+    PSU["12 V DC external source"]
+
+    BUCK["Buck converter<br/>12 V to 5 V"]
+
+    ESP["ESP32 Dev board<br/>5V / VIN"]
+
+    subgraph DISPLAY["LED display driver board"]
+        LEDS["Two seven-segment digits<br/>common anode, 14 segments"]
+        ARR["Darlington arrays<br/>14 channels"]
+    end
+
+    GND(["Common ground"])
+
+    PSU -->|"+12 V, power cable"| BUCK
+    PSU -->|"+12 V, power cable"| LEDS
+    BUCK -->|"5 V"| ESP
+    ESP -->|"14 GPIOs to bases"| ARR
+    LEDS -->|"segments to collectors"| ARR
+
+    PSU ---|"0 V"| GND
+    BUCK --- GND
+    ESP --- GND
+    ARR ---|"common emitter"| GND
+```
+
+### One channel (repeated 14 times)
+
+```text
++12 V ───► LED segment ───► C ┐
+                              │  Darlington
+ESP32 GPIO ───────────────► B ┤  channel
+                              │
+GND ◄─────────────────────  E ┘
+```
+
+GPIO HIGH turns the channel and its segment on. GPIO LOW turns it off.
+
+### GPIO to Darlington base
+
+| Segment | Left digit (tens) | Right digit (units) |
+|:---:|:---:|:---:|
+| A | GPIO26 | GPIO19 |
+| B | GPIO4 | GPIO13 |
+| C | GPIO17 | GPIO22 |
+| D | GPIO33 | GPIO27 |
+| E | GPIO16 | GPIO23 |
+| F | GPIO25 | GPIO32 |
+| G | GPIO18 | GPIO21 |
 
 ## 4. Required software
 
